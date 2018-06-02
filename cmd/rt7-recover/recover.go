@@ -15,9 +15,15 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	cpio "github.com/cavaliercoder/go-cpio"
 	"github.com/krolaw/dhcp4"
 	"github.com/krolaw/dhcp4/conn"
 	"github.com/pin/tftp"
+)
+
+var (
+	bootPath = flag.String("boot", "", "Path to gokr-apu-packer’s -overwrite_boot")
+	rootPath = flag.String("root", "", "Path to gokr-apu-packer’s -overwrite_root")
 )
 
 // TODO: enable automatic reboot, otherwise transient errors leave the box hanging
@@ -35,23 +41,52 @@ var mux = map[string]func(io.ReaderFrom) error{
 	"initrd":               serveInitrd(),
 }
 
+func storeInCpio(w *cpio.Writer, fn string) error {
+	f, err := os.Open(fn)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	hdr, err := cpio.FileInfoHeader(fi, "")
+	if err != nil {
+		return err
+	}
+	if fi.IsDir() {
+		// TODO: file bug
+		hdr.Size = 0 // otherwise: “cpio: missed writing 4096 bytes”
+	}
+	log.Printf("hdr = %+v", hdr)
+	if err := w.WriteHeader(hdr); err != nil {
+		return err
+	}
+	if _, err := io.Copy(w, f); err != nil {
+		return err
+	}
+
+	return err
+}
+
 func serveInitrd() func(io.ReaderFrom) error {
 	return func(rf io.ReaderFrom) error {
-		// TODO: create cpio archive in Go
 		var buf bytes.Buffer
-		cpio := exec.Command("cpio", "-H", "newc", "-o", "--quiet")
-		cpio.Stderr = os.Stderr
-		cpio.Stdout = &buf
-		cpio.Stdin = strings.NewReader(strings.Join([]string{
-			"dumpe2fs",
-			"mke2fs",
-			"perm",
-			"rt7-recovery-init", // TODO: compile on startup
-		}, "\n"))
-		cpio.Dir = "/home/michael/router7/tftpboot/initrd.unpacked"
-		if err := cpio.Run(); err != nil {
+		w := cpio.NewWriter(&buf)
+		for _, fn := range []string{
+			// TODO: bundle these?
+			"/home/michael/router7/tftpboot/initrd.unpacked/dumpe2fs",
+			"/home/michael/router7/tftpboot/initrd.unpacked/mke2fs",
+			"/home/michael/router7/tftpboot/initrd.unpacked/perm",
+			"/home/michael/go/bin/rt7-recovery-init",
+		} {
+			storeInCpio(w, fn)
+		}
+		if err := w.Close(); err != nil {
 			return err
 		}
+
 		rf.(tftp.OutgoingTransfer).SetSize(int64(buf.Len()))
 		_, err := rf.ReadFrom(&buf)
 		return err
@@ -95,9 +130,14 @@ func readHandler(filename string, rf io.ReaderFrom) (err error) {
 
 type dhcpHandler struct {
 	options dhcp4.Options
+	// ServeDHCP responds to requests with Vendor class identifier “PXEClient”,
+	// stores the requester’s MAC address in lastHWAddr and allows subsequent
+	// requests (from the recovery Linux) from that same address.
+	lastHWAddr net.HardwareAddr
 }
 
 func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, options dhcp4.Options) dhcp4.Packet {
+	// TODO: remove after debugging:
 	log.Printf("got DHCP packet: %+v, msgType: %v, options: %v", p, msgType, options)
 	serverIP := net.IP{10, 0, 0, 76} // TODO: set based on incoming network IF
 
@@ -106,7 +146,10 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 		return nil // message not for this dhcp server
 	}
 
-	// TODO: check for PXEClient option?
+	if !bytes.HasPrefix(options[dhcp4.OptionVendorClassIdentifier], []byte("PXEClient")) &&
+		!bytes.Equal(h.lastHWAddr, p.CHAddr()) {
+		return nil // skip non-PXE requests
+	}
 
 	switch msgType {
 	case dhcp4.Discover:
@@ -119,6 +162,7 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 		return rp
 
 	case dhcp4.Request:
+		h.lastHWAddr = p.CHAddr()
 		rp := dhcp4.ReplyPacket(p,
 			dhcp4.ACK,
 			serverIP,
@@ -134,11 +178,18 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 
 func logic() error {
 	var eg errgroup.Group
-	// TODO: serve bootloader from syslinux location
 
 	// HTTP performs significantly better than TFTP for larger files (reduces
 	// recovery time from minutes to seconds).
-	http.Handle("/", http.FileServer(http.Dir("/tmp/recovery")))
+	fileHandler := func(path string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, path)
+		}
+	}
+	http.HandleFunc("/boot.img", fileHandler(*bootPath))
+	http.HandleFunc("/root.img", fileHandler(*rootPath))
+	http.HandleFunc("/mbr.img", fileHandler("/usr/lib/syslinux/mbr/mbr.bin"))
+	http.HandleFunc("/success", func(http.ResponseWriter, *http.Request) { os.Exit(0) })
 	eg.Go(func() error { return http.ListenAndServe(":7773", nil) })
 
 	tsrv := tftp.NewServer(readHandler, nil)
@@ -160,6 +211,18 @@ func logic() error {
 
 func main() {
 	flag.Parse()
+
+	if *bootPath == "" || *rootPath == "" {
+		log.Fatalf("both -boot and -root must be specified")
+	}
+
+	compile := exec.Command("go", "install", "router7/cmd/rt7-recovery-init")
+	compile.Env = append(os.Environ(), "CGO_ENABLED=0")
+	compile.Stderr = os.Stderr
+	if err := compile.Run(); err != nil {
+		log.Fatal(err)
+	}
+
 	if err := logic(); err != nil {
 		log.Fatal(err)
 	}

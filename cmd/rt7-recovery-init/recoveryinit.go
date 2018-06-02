@@ -221,6 +221,9 @@ func logic() error {
 		return fmt.Errorf("Could not unmount permanent storage partition: %v", err)
 	}
 
+	log.Printf("communicating success to rt7-recover")
+	http.Post("http://10.0.0.76:7773/success", "", nil)
+
 	log.Printf("rebooting")
 
 	if err := unix.Reboot(unix.LINUX_REBOOT_CMD_RESTART); err != nil {
