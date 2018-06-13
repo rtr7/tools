@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	cpio "github.com/cavaliercoder/go-cpio"
+	"github.com/google/gousb"
 	"github.com/krolaw/dhcp4"
 	"github.com/krolaw/dhcp4/conn"
 	"github.com/pin/tftp"
@@ -176,6 +177,31 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 	return nil
 }
 
+func hardReboot() error {
+	usb := gousb.NewContext()
+	defer usb.Close()
+
+	dev, err := usb.OpenDeviceWithVIDPID(0x16C0, 0x0477)
+	if err != nil {
+		return fmt.Errorf("could not open teensy rebootor: %v", err)
+	}
+
+	r, err := dev.Control(
+		0x21,             // bmRequestType
+		9,                // bRequest
+		0x0200,           // value
+		0,                // index
+		[]byte("reboot"), // data
+	)
+	if err != nil {
+		return err
+	}
+	if got, want := r, 6; got != want {
+		return fmt.Errorf("unexpected reboot reply: got %d, want %d", got, want)
+	}
+	return nil
+}
+
 func logic() error {
 	var eg errgroup.Group
 
@@ -205,6 +231,10 @@ func logic() error {
 		return err
 	}
 	eg.Go(func() error { return dhcp4.Serve(cn, handler) })
+
+	if err := hardReboot(); err != nil {
+		log.Printf("hard reboot failed (%v), please trigger a reboot manually", err)
+	}
 
 	return eg.Wait()
 }
