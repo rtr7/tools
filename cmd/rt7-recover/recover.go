@@ -56,10 +56,6 @@ func storeInCpio(w *cpio.Writer, fn string) error {
 	if err != nil {
 		return err
 	}
-	if fi.IsDir() {
-		// TODO: file bug
-		hdr.Size = 0 // otherwise: “cpio: missed writing 4096 bytes”
-	}
 	log.Printf("hdr = %+v", hdr)
 	if err := w.WriteHeader(hdr); err != nil {
 		return err
