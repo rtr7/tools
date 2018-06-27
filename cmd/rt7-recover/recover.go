@@ -182,6 +182,16 @@ func hardReboot() error {
 		return fmt.Errorf("could not open teensy rebootor: %v", err)
 	}
 
+	if err := dev.SetAutoDetach(true); err != nil {
+		return err
+	}
+
+	_, done, err := dev.DefaultInterface()
+	if err != nil {
+		return err
+	}
+	defer done()
+
 	r, err := dev.Control(
 		0x21,             // bmRequestType
 		9,                // bRequest
