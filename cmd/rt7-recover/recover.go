@@ -252,6 +252,14 @@ func main() {
 		log.Fatalf("both -boot and -root must be specified")
 	}
 
+	if _, err := os.Stat(*bootPath); err != nil {
+		log.Fatalf("-boot: %v", err)
+	}
+
+	if _, err := os.Stat(*rootPath); err != nil {
+		log.Fatalf("-root: %v", err)
+	}
+
 	compile := exec.Command("go", "install", "router7/cmd/rt7-recovery-init")
 	compile.Env = append(os.Environ(), "CGO_ENABLED=0")
 	compile.Stderr = os.Stderr
