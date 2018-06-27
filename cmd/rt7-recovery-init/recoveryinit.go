@@ -143,6 +143,10 @@ func download(target, url string) error {
 	}
 	defer resp.Body.Close()
 
+	if got, want := resp.StatusCode, http.StatusOK; got != want {
+		return fmt.Errorf("unexpected HTTP status code: got %d, want %d", got, want)
+	}
+
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		return err
 	}
