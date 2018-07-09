@@ -32,7 +32,7 @@ import (
 	"syscall"
 	"time"
 
-	"router7/internal/updater"
+	"github.com/rtr7/router7/internal/updater"
 )
 
 var (

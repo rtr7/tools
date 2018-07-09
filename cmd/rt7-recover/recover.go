@@ -274,7 +274,7 @@ func main() {
 		log.Fatalf("-root: %v", err)
 	}
 
-	compile := exec.Command("go", "install", "router7/cmd/rt7-recovery-init")
+	compile := exec.Command("go", "install", "github.com/rtr7/router7/cmd/rt7-recovery-init")
 	compile.Env = append(os.Environ(), "CGO_ENABLED=0")
 	compile.Stderr = os.Stderr
 	if err := compile.Run(); err != nil {
