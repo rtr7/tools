@@ -40,7 +40,32 @@ var (
 	bootPath = flag.String("boot", "", "Path to gokr-apu-packer’s -overwrite_boot")
 	rootPath = flag.String("root", "", "Path to gokr-apu-packer’s -overwrite_root")
 	reset    = flag.Bool("reset", true, "Trigger a reset if a Teensy rebootor is attached")
+	ifname   = flag.String("interface", firstIfname(), "ethernet interface name (e.g. enp0s31f6) on which to serve TFTP, HTTP, DHCP")
 )
+
+func firstIfname() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // skip loopback interface(s)
+		}
+		if iface.Flags&net.FlagUp == 0 {
+			continue // skip interfaces which are down
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		if len(addrs) == 0 {
+			continue
+		}
+		return iface.Name
+	}
+	return ""
+}
 
 const pxeLinuxConfig = `DEFAULT recover
 
@@ -159,9 +184,9 @@ func logic() error {
 			dhcp4.OptionVendorClassIdentifier: []byte("PXEClient"),
 		},
 	}
-	cn, err := conn.NewUDP4BoundListener("enp0s31f6", ":67") // TODO: customizeable
+	cn, err := conn.NewUDP4BoundListener(*ifname, ":67")
 	if err != nil {
-		return err
+		return fmt.Errorf("NewUDP4BoundListener(%q, %q): %v", *ifname, ":67", err)
 	}
 	eg.Go(func() error { return dhcp4.Serve(cn, handler) })
 
