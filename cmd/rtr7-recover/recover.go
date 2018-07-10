@@ -43,12 +43,11 @@ var (
 	reset    = flag.Bool("reset", true, "Trigger a reset if a Teensy rebootor is attached")
 )
 
-// TODO: enable automatic reboot, otherwise transient errors leave the box hanging
 const pxeLinuxConfig = `DEFAULT recover
 
 LABEL recover
 LINUX vmlinuz
-APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console=ttyS0,115200n8`
+APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console=ttyS0,115200n8 panic=10 panic_on_oops=1`
 
 var mux = map[string]func(io.ReaderFrom) error{
 	"lpxelinux.0":          serveFile("/usr/lib/PXELINUX/lpxelinux.0"),
