@@ -113,7 +113,8 @@ func readHandler(filename string, rf io.ReaderFrom) (err error) {
 }
 
 type dhcpHandler struct {
-	options dhcp4.Options
+	serverIP net.IP
+	options  dhcp4.Options
 	// ServeDHCP responds to requests with Vendor class identifier “PXEClient”,
 	// stores the requester’s MAC address in lastHWAddr and allows subsequent
 	// requests (from the recovery Linux) from that same address.
@@ -123,10 +124,9 @@ type dhcpHandler struct {
 func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, options dhcp4.Options) dhcp4.Packet {
 	// TODO: remove after debugging:
 	log.Printf("got DHCP packet: %+v, msgType: %v, options: %v", p, msgType, options)
-	serverIP := net.IP{10, 0, 0, 76} // TODO: set based on incoming network IF
 
 	if msgType != dhcp4.Discover &&
-		!net.IP(options[dhcp4.OptionServerIdentifier]).Equal(serverIP) {
+		!net.IP(options[dhcp4.OptionServerIdentifier]).Equal(h.serverIP) {
 		return nil // message not for this dhcp server
 	}
 
@@ -139,7 +139,7 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 	case dhcp4.Discover:
 		rp := dhcp4.ReplyPacket(p,
 			dhcp4.Offer,
-			serverIP,
+			h.serverIP,
 			net.IP{10, 0, 0, 92},
 			2*time.Hour,
 			h.options.SelectOrderOrAll(options[dhcp4.OptionParameterRequestList]))
@@ -149,15 +149,44 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 		h.lastHWAddr = p.CHAddr()
 		rp := dhcp4.ReplyPacket(p,
 			dhcp4.ACK,
-			serverIP,
+			h.serverIP,
 			net.IP{10, 0, 0, 92},
 			2*time.Hour,
 			h.options.SelectOrderOrAll(options[dhcp4.OptionParameterRequestList]))
-		rp.SetSIAddr(serverIP)            // next server
+		rp.SetSIAddr(h.serverIP)          // next server
 		rp.SetFile([]byte("lpxelinux.0")) // boot file name
 		return rp
 	}
 	return nil
+}
+
+func findServerIP() (net.IP, error) {
+	iface, err := net.InterfaceByName(*ifname)
+	if err != nil {
+		return nil, err
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return nil, err
+	}
+	var candidates []net.IP
+	for _, addr := range addrs {
+		ipnet, ok := addr.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		if ipnet.IP.To4() == nil {
+			continue // skip non-IPv4
+		}
+		candidates = append(candidates, ipnet.IP)
+	}
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no IPv4 address found on interface %s", *ifname)
+	}
+	if len(candidates) > 1 {
+		return nil, fmt.Errorf("more than one IPv4 address found on interface %s: %v", *ifname, candidates)
+	}
+	return candidates[0].To4(), nil
 }
 
 func logic() error {
@@ -179,7 +208,13 @@ func logic() error {
 	tsrv := tftp.NewServer(readHandler, nil)
 	eg.Go(func() error { return tsrv.ListenAndServe(":69") })
 
+	serverIP, err := findServerIP()
+	if err != nil {
+		return err
+	}
+
 	handler := &dhcpHandler{
+		serverIP: serverIP,
 		options: dhcp4.Options{
 			dhcp4.OptionVendorClassIdentifier: []byte("PXEClient"),
 			dhcp4.OptionSubnetMask:            []byte{255, 255, 255, 0},
@@ -197,7 +232,7 @@ func logic() error {
 		}
 	}
 
-	log.Printf("serving TFTP, HTTP, DHCP (for PXE clients)")
+	log.Printf("serving TFTP, HTTP, DHCP (for PXE clients) on %s (%s)", serverIP, *ifname)
 
 	return eg.Wait()
 }
