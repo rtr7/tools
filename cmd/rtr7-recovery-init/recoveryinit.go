@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -171,8 +172,31 @@ func download(target, url string) error {
 	return nil
 }
 
+func kernelParameter(param string) string {
+	cmdline, err := ioutil.ReadFile("/proc/cmdline")
+	if err != nil {
+		return ""
+	}
+
+	parts := strings.Split(strings.TrimSpace(string(cmdline)), " ")
+	for _, part := range parts {
+		if strings.HasPrefix(part, param+"=") {
+			return strings.TrimPrefix(part, param+"=")
+		}
+	}
+	return ""
+}
+
 func logic() error {
-	// TODO: take the target server address from a custom kernel cmdline parameter
+	// /proc is useful for exposing process details and for
+	// interactive debugging sessions.
+	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
+		if sce, ok := err.(syscall.Errno); ok && sce == syscall.EBUSY {
+			// /proc was already mounted (common in setups using nfsroot= or initramfs)
+		} else {
+			return fmt.Errorf("proc: %v", err)
+		}
+	}
 
 	if err := syscall.Mount("devtmpfs", "/dev", "devtmpfs", 0, ""); err != nil {
 		if sce, ok := err.(syscall.Errno); ok && sce == syscall.EBUSY {
@@ -180,6 +204,11 @@ func logic() error {
 		} else {
 			return fmt.Errorf("devtmpfs: %v", err)
 		}
+	}
+
+	server := kernelParameter("rtr7.server")
+	if server == "" {
+		log.Fatalf("Could not extract rtr7.server= from kernel command line")
 	}
 
 	log.Printf("partitioning /dev/sda")
@@ -192,9 +221,9 @@ func logic() error {
 		target string
 		url    string
 	}{
-		{"/dev/sda", "http://10.0.0.76:7773/mbr.img"},
-		{"/dev/sda1", "http://10.0.0.76:7773/boot.img"},
-		{"/dev/sda2", "http://10.0.0.76:7773/root.img"},
+		{"/dev/sda", "http://" + server + ":7773/mbr.img"},
+		{"/dev/sda1", "http://" + server + ":7773/boot.img"},
+		{"/dev/sda2", "http://" + server + ":7773/root.img"},
 	} {
 		log.Printf("downloading %s to %s", part.url, part.target)
 		if err := download(part.target, part.url); err != nil {
@@ -240,7 +269,7 @@ func logic() error {
 	}
 
 	log.Printf("communicating success to rt7-recover")
-	http.Post("http://10.0.0.76:7773/success", "", nil)
+	http.Post("http://"+server+":7773/success", "", nil)
 
 	log.Printf("rebooting")
 

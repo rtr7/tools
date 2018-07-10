@@ -72,6 +72,17 @@ func makeInitrd() ([]byte, error) {
 	var buf bytes.Buffer
 	w := cpio.NewWriter(&buf)
 
+	for _, dir := range []string{"perm", "proc"} {
+		hdr := &cpio.Header{
+			Name:    dir + "/",
+			Mode:    0755 | cpio.ModeDir,
+			ModTime: time.Now(),
+		}
+		if err := w.WriteHeader(hdr); err != nil {
+			return nil, err
+		}
+	}
+
 	for path, b := range e2fsprogs.Bundled {
 		hdr := &cpio.Header{
 			Name:    filepath.Base(path),

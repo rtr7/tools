@@ -67,16 +67,6 @@ func firstIfname() string {
 	return ""
 }
 
-const pxeLinuxConfig = `DEFAULT recover
-
-LABEL recover
-LINUX vmlinuz
-APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console=ttyS0,115200n8 panic=10 panic_on_oops=1`
-
-var mux = map[string]func(io.ReaderFrom) error{
-	"pxelinux.cfg/default": serveConst([]byte(pxeLinuxConfig)),
-}
-
 func serveConst(contents []byte) func(io.ReaderFrom) error {
 	return func(rf io.ReaderFrom) error {
 		rf.(tftp.OutgoingTransfer).SetSize(int64(len(contents)))
@@ -95,21 +85,6 @@ func serveFile(filename string) func(io.ReaderFrom) error {
 		_, err = rf.ReadFrom(f)
 		return err
 	}
-}
-
-func readHandler(filename string, rf io.ReaderFrom) (err error) {
-	defer func() {
-		result := "success"
-		if err != nil {
-			result = err.Error()
-		}
-		log.Printf("[tftp] read %q: %v", filename, result)
-	}()
-	handler, ok := mux[filename]
-	if !ok {
-		return fmt.Errorf("file not found")
-	}
-	return handler(rf)
 }
 
 type dhcpHandler struct {
@@ -194,6 +169,41 @@ func findServerIP() (net.IP, error) {
 }
 
 func logic() error {
+	serverIP, err := findServerIP()
+	if err != nil {
+		return err
+	}
+
+	pxeLinuxConfig := fmt.Sprintf(`DEFAULT recover
+
+LABEL recover
+LINUX vmlinuz
+APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console=ttyS0,115200n8 panic=10 panic_on_oops=1 rtr7.server=%s`, serverIP)
+
+	mux := map[string]func(io.ReaderFrom) error{
+		"pxelinux.cfg/default": serveConst([]byte(pxeLinuxConfig)),
+	}
+
+	kernelDir, err := packageDir("github.com/rtr7/kernel")
+	if err != nil {
+		log.Fatalf("could not find kernel: %v", err)
+	}
+	vmlinuzPath := filepath.Join(kernelDir, "vmlinuz")
+	if _, err := os.Stat(vmlinuzPath); err != nil {
+		log.Fatalf("could not find vmlinuz in kernel dir: %v", err)
+	}
+	mux["vmlinuz"] = serveFile(vmlinuzPath)
+
+	initrd, err := makeInitrd()
+	if err != nil {
+		log.Fatalf("makeInitrd: %v", err)
+	}
+	mux["initrd"] = serveConst(initrd)
+
+	for path, b := range pxelinux.Bundled {
+		mux[filepath.Base(path)] = serveConst(b)
+	}
+
 	var eg errgroup.Group
 
 	// HTTP performs significantly better than TFTP for larger files (reduces
@@ -209,13 +219,22 @@ func logic() error {
 	http.HandleFunc("/success", func(http.ResponseWriter, *http.Request) { os.Exit(0) })
 	eg.Go(func() error { return http.ListenAndServe(":7773", nil) })
 
+	readHandler := func(filename string, rf io.ReaderFrom) (err error) {
+		defer func() {
+			result := "success"
+			if err != nil {
+				result = err.Error()
+			}
+			log.Printf("[tftp] read %q: %v", filename, result)
+		}()
+		handler, ok := mux[filename]
+		if !ok {
+			return fmt.Errorf("file not found")
+		}
+		return handler(rf)
+	}
 	tsrv := tftp.NewServer(readHandler, nil)
 	eg.Go(func() error { return tsrv.ListenAndServe(":69") })
-
-	serverIP, err := findServerIP()
-	if err != nil {
-		return err
-	}
 
 	handler := &dhcpHandler{
 		serverIP: serverIP,
@@ -263,26 +282,6 @@ func main() {
 
 	if _, err := os.Stat(*rootPath); err != nil {
 		log.Fatalf("-root: %v", err)
-	}
-
-	kernelDir, err := packageDir("github.com/rtr7/kernel")
-	if err != nil {
-		log.Fatalf("could not find kernel: %v", err)
-	}
-	vmlinuzPath := filepath.Join(kernelDir, "vmlinuz")
-	if _, err := os.Stat(vmlinuzPath); err != nil {
-		log.Fatalf("could not find vmlinuz in kernel dir: %v", err)
-	}
-	mux["vmlinuz"] = serveFile(vmlinuzPath)
-
-	initrd, err := makeInitrd()
-	if err != nil {
-		log.Fatalf("makeInitrd: %v", err)
-	}
-	mux["initrd"] = serveConst(initrd)
-
-	for path, b := range pxelinux.Bundled {
-		mux[filepath.Base(path)] = serveConst(b)
 	}
 
 	if err := logic(); err != nil {
