@@ -19,12 +19,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -34,6 +35,7 @@ import (
 	"github.com/krolaw/dhcp4"
 	"github.com/krolaw/dhcp4/conn"
 	"github.com/pin/tftp"
+	"github.com/rtr7/tools/internal/e2fsprogs"
 )
 
 var (
@@ -47,14 +49,13 @@ const pxeLinuxConfig = `DEFAULT recover
 
 LABEL recover
 LINUX vmlinuz
-APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rt7-recovery-init console=ttyS0,115200n8`
+APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console=ttyS0,115200n8`
 
 var mux = map[string]func(io.ReaderFrom) error{
 	"lpxelinux.0":          serveFile("/usr/lib/PXELINUX/lpxelinux.0"),
 	"ldlinux.c32":          serveFile("/usr/lib/syslinux/modules/bios/ldlinux.c32"),
-	"pxelinux.cfg/default": serveConst(pxeLinuxConfig),
+	"pxelinux.cfg/default": serveConst([]byte(pxeLinuxConfig)),
 	"vmlinuz":              serveFile("/home/michael/router7/tftpboot/vmlinuz"),
-	"initrd":               serveInitrd(),
 }
 
 func storeInCpio(w *cpio.Writer, fn string) error {
@@ -82,33 +83,10 @@ func storeInCpio(w *cpio.Writer, fn string) error {
 	return err
 }
 
-func serveInitrd() func(io.ReaderFrom) error {
-	return func(rf io.ReaderFrom) error {
-		var buf bytes.Buffer
-		w := cpio.NewWriter(&buf)
-		for _, fn := range []string{
-			// TODO: bundle these?
-			"/home/michael/router7/tftpboot/initrd.unpacked/dumpe2fs",
-			"/home/michael/router7/tftpboot/initrd.unpacked/mke2fs",
-			"/home/michael/router7/tftpboot/initrd.unpacked/perm",
-			"/home/michael/go/bin/rt7-recovery-init",
-		} {
-			storeInCpio(w, fn)
-		}
-		if err := w.Close(); err != nil {
-			return err
-		}
-
-		rf.(tftp.OutgoingTransfer).SetSize(int64(buf.Len()))
-		_, err := rf.ReadFrom(&buf)
-		return err
-	}
-}
-
-func serveConst(contents string) func(io.ReaderFrom) error {
+func serveConst(contents []byte) func(io.ReaderFrom) error {
 	return func(rf io.ReaderFrom) error {
 		rf.(tftp.OutgoingTransfer).SetSize(int64(len(contents)))
-		_, err := rf.ReadFrom(strings.NewReader(contents))
+		_, err := rf.ReadFrom(bytes.NewReader(contents))
 		return err
 	}
 }
@@ -262,6 +240,50 @@ func logic() error {
 	return eg.Wait()
 }
 
+func makeInitrd() ([]byte, error) {
+	tmpdir, err := ioutil.TempDir("", "rtr7-recover")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmpdir)
+
+	compile := exec.Command("go", "build", "github.com/rtr7/tools/cmd/rtr7-recovery-init")
+	compile.Dir = tmpdir
+	compile.Env = append(os.Environ(), "CGO_ENABLED=0", "GOARCH=amd64")
+	compile.Stderr = os.Stderr
+	if err := compile.Run(); err != nil {
+		return nil, fmt.Errorf("%v: %v", compile.Args, err)
+	}
+
+	var buf bytes.Buffer
+	w := cpio.NewWriter(&buf)
+
+	for path, b := range e2fsprogs.Bundled {
+		hdr := &cpio.Header{
+			Name:    filepath.Base(path),
+			Mode:    0755 | cpio.ModeRegular,
+			ModTime: time.Now(),
+			Size:    int64(len(b)),
+		}
+		if err := w.WriteHeader(hdr); err != nil {
+			return nil, err
+		}
+		if _, err := w.Write(b); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := storeInCpio(w, filepath.Join(tmpdir, "rtr7-recovery-init")); err != nil {
+		return nil, err
+	}
+
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
 func main() {
 	flag.Parse()
 
@@ -277,12 +299,11 @@ func main() {
 		log.Fatalf("-root: %v", err)
 	}
 
-	compile := exec.Command("go", "install", "github.com/rtr7/router7/cmd/rt7-recovery-init")
-	compile.Env = append(os.Environ(), "CGO_ENABLED=0")
-	compile.Stderr = os.Stderr
-	if err := compile.Run(); err != nil {
-		log.Fatal(err)
+	initrd, err := makeInitrd()
+	if err != nil {
+		log.Fatalf("makeInitrd: %v", err)
 	}
+	mux["initrd"] = serveConst(initrd)
 
 	if err := logic(); err != nil {
 		log.Fatal(err)
