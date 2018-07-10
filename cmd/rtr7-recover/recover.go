@@ -39,6 +39,7 @@ import (
 var (
 	bootPath = flag.String("boot", "", "Path to gokr-apu-packer’s -overwrite_boot")
 	rootPath = flag.String("root", "", "Path to gokr-apu-packer’s -overwrite_root")
+	reset    = flag.Bool("reset", true, "Trigger a reset if a Teensy rebootor is attached")
 )
 
 // TODO: enable automatic reboot, otherwise transient errors leave the box hanging
@@ -252,8 +253,10 @@ func logic() error {
 	}
 	eg.Go(func() error { return dhcp4.Serve(cn, handler) })
 
-	if err := hardReboot(); err != nil {
-		log.Printf("hard reboot failed (%v), please trigger a reboot manually", err)
+	if *reset {
+		if err := hardReboot(); err != nil {
+			log.Printf("hard reboot failed (%v), please trigger a reboot manually", err)
+		}
 	}
 
 	return eg.Wait()
