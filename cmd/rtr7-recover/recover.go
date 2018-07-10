@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -30,6 +31,7 @@ import (
 	"github.com/krolaw/dhcp4"
 	"github.com/krolaw/dhcp4/conn"
 	"github.com/pin/tftp"
+	"github.com/rtr7/tools/internal/pxelinux"
 )
 
 var (
@@ -45,8 +47,6 @@ LINUX vmlinuz
 APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console=ttyS0,115200n8 panic=10 panic_on_oops=1`
 
 var mux = map[string]func(io.ReaderFrom) error{
-	"lpxelinux.0":          serveFile("/usr/lib/PXELINUX/lpxelinux.0"),
-	"ldlinux.c32":          serveFile("/usr/lib/syslinux/modules/bios/ldlinux.c32"),
 	"pxelinux.cfg/default": serveConst([]byte(pxeLinuxConfig)),
 	"vmlinuz":              serveFile("/home/michael/router7/tftpboot/vmlinuz"),
 }
@@ -195,6 +195,10 @@ func main() {
 		log.Fatalf("makeInitrd: %v", err)
 	}
 	mux["initrd"] = serveConst(initrd)
+
+	for path, b := range pxelinux.Bundled {
+		mux[filepath.Base(path)] = serveConst(b)
+	}
 
 	if err := logic(); err != nil {
 		log.Fatal(err)
