@@ -182,6 +182,7 @@ func logic() error {
 	handler := &dhcpHandler{
 		options: dhcp4.Options{
 			dhcp4.OptionVendorClassIdentifier: []byte("PXEClient"),
+			dhcp4.OptionSubnetMask:            []byte{255, 255, 255, 0},
 		},
 	}
 	cn, err := conn.NewUDP4BoundListener(*ifname, ":67")
