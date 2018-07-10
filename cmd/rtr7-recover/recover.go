@@ -23,7 +23,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -48,7 +50,6 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 
 var mux = map[string]func(io.ReaderFrom) error{
 	"pxelinux.cfg/default": serveConst([]byte(pxeLinuxConfig)),
-	"vmlinuz":              serveFile("/home/michael/router7/tftpboot/vmlinuz"),
 }
 
 func serveConst(contents []byte) func(io.ReaderFrom) error {
@@ -175,6 +176,15 @@ func logic() error {
 	return eg.Wait()
 }
 
+func packageDir(pkg string) (string, error) {
+	cmd := exec.Command("go", "list", "-f", "{{ .Dir }}", pkg)
+	b, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("%v: %v", cmd.Args, err)
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
 func main() {
 	flag.Parse()
 
@@ -189,6 +199,16 @@ func main() {
 	if _, err := os.Stat(*rootPath); err != nil {
 		log.Fatalf("-root: %v", err)
 	}
+
+	kernelDir, err := packageDir("github.com/rtr7/kernel")
+	if err != nil {
+		log.Fatalf("could not find kernel: %v", err)
+	}
+	vmlinuzPath := filepath.Join(kernelDir, "vmlinuz")
+	if _, err := os.Stat(vmlinuzPath); err != nil {
+		log.Fatalf("could not find vmlinuz in kernel dir: %v", err)
+	}
+	mux["vmlinuz"] = serveFile(vmlinuzPath)
 
 	initrd, err := makeInitrd()
 	if err != nil {
