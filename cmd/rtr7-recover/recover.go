@@ -19,22 +19,17 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"time"
 
 	"golang.org/x/sync/errgroup"
 
-	cpio "github.com/cavaliercoder/go-cpio"
 	"github.com/krolaw/dhcp4"
 	"github.com/krolaw/dhcp4/conn"
 	"github.com/pin/tftp"
-	"github.com/rtr7/tools/internal/e2fsprogs"
 )
 
 var (
@@ -54,31 +49,6 @@ var mux = map[string]func(io.ReaderFrom) error{
 	"ldlinux.c32":          serveFile("/usr/lib/syslinux/modules/bios/ldlinux.c32"),
 	"pxelinux.cfg/default": serveConst([]byte(pxeLinuxConfig)),
 	"vmlinuz":              serveFile("/home/michael/router7/tftpboot/vmlinuz"),
-}
-
-func storeInCpio(w *cpio.Writer, fn string) error {
-	f, err := os.Open(fn)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	hdr, err := cpio.FileInfoHeader(fi, "")
-	if err != nil {
-		return err
-	}
-	log.Printf("hdr = %+v", hdr)
-	if err := w.WriteHeader(hdr); err != nil {
-		return err
-	}
-	if _, err := io.Copy(w, f); err != nil {
-		return err
-	}
-
-	return err
 }
 
 func serveConst(contents []byte) func(io.ReaderFrom) error {
@@ -200,51 +170,9 @@ func logic() error {
 		}
 	}
 
+	log.Printf("serving TFTP, HTTP, DHCP (for PXE clients)")
+
 	return eg.Wait()
-}
-
-func makeInitrd() ([]byte, error) {
-	tmpdir, err := ioutil.TempDir("", "rtr7-recover")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(tmpdir)
-
-	compile := exec.Command("go", "build", "github.com/rtr7/tools/cmd/rtr7-recovery-init")
-	compile.Dir = tmpdir
-	compile.Env = append(os.Environ(), "CGO_ENABLED=0", "GOARCH=amd64")
-	compile.Stderr = os.Stderr
-	if err := compile.Run(); err != nil {
-		return nil, fmt.Errorf("%v: %v", compile.Args, err)
-	}
-
-	var buf bytes.Buffer
-	w := cpio.NewWriter(&buf)
-
-	for path, b := range e2fsprogs.Bundled {
-		hdr := &cpio.Header{
-			Name:    filepath.Base(path),
-			Mode:    0755 | cpio.ModeRegular,
-			ModTime: time.Now(),
-			Size:    int64(len(b)),
-		}
-		if err := w.WriteHeader(hdr); err != nil {
-			return nil, err
-		}
-		if _, err := w.Write(b); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := storeInCpio(w, filepath.Join(tmpdir, "rtr7-recovery-init")); err != nil {
-		return nil, err
-	}
-
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
 }
 
 func main() {
