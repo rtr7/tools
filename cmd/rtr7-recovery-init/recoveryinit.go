@@ -16,11 +16,13 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -187,6 +189,56 @@ func kernelParameter(param string) string {
 	return ""
 }
 
+// see github.com/rtr7/router7/internal/netconfig.InterfaceDetails
+type InterfaceDetails struct {
+	HardwareAddr      string `json:"hardware_addr"`       // e.g. dc:9b:9c:ee:72:fd
+	SpoofHardwareAddr string `json:"spoof_hardware_addr"` // e.g. dc:9b:9c:ee:72:fd
+	Name              string `json:"name"`                // e.g. uplink0, or lan0
+	Addr              string `json:"addr"`                // e.g. 192.168.42.1/24
+}
+
+// see github.com/rtr7/router7/internal/netconfig.InterfaceConfig
+type InterfaceConfig struct {
+	Interfaces []InterfaceDetails `json:"interfaces"`
+}
+
+func writeInterfacesJSON(fn string) error {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // skip loopback interface(s)
+		}
+		if iface.Flags&net.FlagUp == 0 {
+			continue // skip interfaces which are down
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		if len(addrs) == 0 {
+			continue
+		}
+		cfg := InterfaceConfig{
+			Interfaces: []InterfaceDetails{
+				{
+					HardwareAddr: iface.HardwareAddr.String(),
+					Name:         "lan0",
+					Addr:         addrs[0].String(),
+				},
+			},
+		}
+		b, err := json.Marshal(&cfg)
+		if err != nil {
+			return err
+		}
+		return ioutil.WriteFile(fn, b, 0644)
+	}
+	return err
+}
+
 func logic() error {
 	// /proc is useful for exposing process details and for
 	// interactive debugging sessions.
@@ -248,20 +300,10 @@ func logic() error {
 	}
 
 	// TODO: unpack an archive files for /perm
-	if err := ioutil.WriteFile("/perm/interfaces.json", []byte(`{
-  "interfaces": [
-    {
-      "hardware_addr": "00:0d:b9:49:70:18",
-      "name": "uplink0"
-    },
-    {
-      "hardware_addr": "00:0d:b9:49:70:1a",
-      "name": "lan0",
-      "addr": "192.168.42.1/24"
-    }
-  ]
-}`), 0644); err != nil {
-		return err
+	if _, err := os.Stat("/perm/interfaces.json"); err != nil {
+		if err := writeInterfacesJSON("/perm/interfaces.json"); err != nil {
+			return err
+		}
 	}
 
 	if err := syscall.Unmount("/perm", 0); err != nil {
