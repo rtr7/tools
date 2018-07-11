@@ -37,8 +37,9 @@ import (
 )
 
 var (
-	bootPath = flag.String("boot", "", "Path to gokr-apu-packer’s -overwrite_boot")
-	rootPath = flag.String("root", "", "Path to gokr-apu-packer’s -overwrite_root")
+	bootPath = flag.String("boot", "", "Path to gokr-packer’s -overwrite_boot")
+	rootPath = flag.String("root", "", "Path to gokr-packer’s -overwrite_root")
+	mbrPath  = flag.String("mbr", "", "Path to gokr-packer’s -overwrite_mbr")
 	reset    = flag.Bool("reset", true, "Trigger a reset if a Teensy rebootor is attached")
 	ifname   = flag.String("interface", firstIfname(), "ethernet interface name (e.g. enp0s31f6) on which to serve TFTP, HTTP, DHCP")
 )
@@ -215,7 +216,7 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 	}
 	http.HandleFunc("/boot.img", fileHandler(*bootPath))
 	http.HandleFunc("/root.img", fileHandler(*rootPath))
-	http.HandleFunc("/mbr.img", fileHandler("/usr/lib/syslinux/mbr/mbr.bin"))
+	http.HandleFunc("/mbr.img", fileHandler(*mbrPath))
 	http.HandleFunc("/success", func(http.ResponseWriter, *http.Request) { os.Exit(0) })
 	eg.Go(func() error { return http.ListenAndServe(":7773", nil) })
 
@@ -272,8 +273,8 @@ func packageDir(pkg string) (string, error) {
 func main() {
 	flag.Parse()
 
-	if *bootPath == "" || *rootPath == "" {
-		log.Fatalf("both -boot and -root must be specified")
+	if *bootPath == "" || *rootPath == "" || *mbrPath == "" {
+		log.Fatalf("-boot, -mbr and -root must be specified")
 	}
 
 	if _, err := os.Stat(*bootPath); err != nil {
@@ -282,6 +283,10 @@ func main() {
 
 	if _, err := os.Stat(*rootPath); err != nil {
 		log.Fatalf("-root: %v", err)
+	}
+
+	if _, err := os.Stat(*mbrPath); err != nil {
+		log.Fatalf("-mbr: %v", err)
 	}
 
 	if err := logic(); err != nil {
