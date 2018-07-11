@@ -211,13 +211,17 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 	// recovery time from minutes to seconds).
 	fileHandler := func(path string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("[http] %s %s", r.URL.Path, r.RemoteAddr)
 			http.ServeFile(w, r, path)
 		}
 	}
 	http.HandleFunc("/boot.img", fileHandler(*bootPath))
 	http.HandleFunc("/root.img", fileHandler(*rootPath))
 	http.HandleFunc("/mbr.img", fileHandler(*mbrPath))
-	http.HandleFunc("/success", func(http.ResponseWriter, *http.Request) { os.Exit(0) })
+	http.HandleFunc("/success", func(_ http.ResponseWriter, r *http.Request) {
+		log.Printf("[http] %s %s", r.URL.Path, r.RemoteAddr)
+		os.Exit(0)
+	})
 	eg.Go(func() error { return http.ListenAndServe(":7773", nil) })
 
 	readHandler := func(filename string, rf io.ReaderFrom) (err error) {
@@ -226,7 +230,7 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 			if err != nil {
 				result = err.Error()
 			}
-			log.Printf("[tftp] read %q: %v", filename, result)
+			log.Printf("[tftp] %s: %v", filename, result)
 		}()
 		handler, ok := mux[filename]
 		if !ok {
