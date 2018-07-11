@@ -299,7 +299,24 @@ func logic() error {
 		return fmt.Errorf("Could not mount permanent storage partition: %v", err)
 	}
 
-	// TODO: unpack an archive files for /perm
+	resp, err := http.Get("http://" + server + ":7773/backup.tar.gz")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		// no backup flag specified
+		log.Printf("not restoring a backup: no -backup flag specified")
+	case http.StatusOK:
+		if err := restore("/perm", resp.Body); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unexpected HTTP status code %v", resp.StatusCode)
+	}
+
 	if _, err := os.Stat("/perm/interfaces.json"); err != nil {
 		if err := writeInterfacesJSON("/perm/interfaces.json"); err != nil {
 			return err

@@ -37,11 +37,12 @@ import (
 )
 
 var (
-	bootPath = flag.String("boot", "", "Path to gokr-packer’s -overwrite_boot")
-	rootPath = flag.String("root", "", "Path to gokr-packer’s -overwrite_root")
-	mbrPath  = flag.String("mbr", "", "Path to gokr-packer’s -overwrite_mbr")
-	reset    = flag.Bool("reset", true, "Trigger a reset if a Teensy rebootor is attached")
-	ifname   = flag.String("interface", firstIfname(), "ethernet interface name (e.g. enp0s31f6) on which to serve TFTP, HTTP, DHCP")
+	bootPath   = flag.String("boot", "", "Path to gokr-packer’s -overwrite_boot")
+	rootPath   = flag.String("root", "", "Path to gokr-packer’s -overwrite_root")
+	mbrPath    = flag.String("mbr", "", "Path to gokr-packer’s -overwrite_mbr")
+	backupPath = flag.String("backup", "", "Path to a backup.tar.gz archive from backupd")
+	reset      = flag.Bool("reset", true, "Trigger a reset if a Teensy rebootor is attached")
+	ifname     = flag.String("interface", firstIfname(), "ethernet interface name (e.g. enp0s31f6) on which to serve TFTP, HTTP, DHCP")
 )
 
 func firstIfname() string {
@@ -211,6 +212,11 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 	// recovery time from minutes to seconds).
 	fileHandler := func(path string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			if path == "" {
+				log.Printf("[http] %s %s 404", r.URL.Path, r.RemoteAddr)
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
 			log.Printf("[http] %s %s", r.URL.Path, r.RemoteAddr)
 			http.ServeFile(w, r, path)
 		}
@@ -218,6 +224,7 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 	http.HandleFunc("/boot.img", fileHandler(*bootPath))
 	http.HandleFunc("/root.img", fileHandler(*rootPath))
 	http.HandleFunc("/mbr.img", fileHandler(*mbrPath))
+	http.HandleFunc("/backup.tar.gz", fileHandler(*backupPath))
 	http.HandleFunc("/success", func(_ http.ResponseWriter, r *http.Request) {
 		log.Printf("[http] %s %s", r.URL.Path, r.RemoteAddr)
 		os.Exit(0)
