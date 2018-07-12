@@ -39,6 +39,10 @@ var (
 	updatesDir = flag.String("updates_dir",
 		"/home/michael/router7/updates/",
 		"Directory in which a subdirectory with backups, logs, boot/root file system images will be stored")
+
+	keepOnlyN = flag.Int("keep_only_n",
+		5,
+		"Keep only the last N (default 5) updates to conserve disk space. Setting this to -1 keeps all updates forever.")
 )
 
 func verifyHealthy() error {
@@ -94,6 +98,9 @@ func latestImage() (string, error) {
 }
 
 func keepOnly(n int) error {
+	if n == -1 {
+		return nil
+	}
 	f, err := os.Open(*updatesDir)
 	if err != nil {
 		return err
@@ -318,7 +325,7 @@ sudo rtr7-recover -boot=boot.img -root=root.img
 	}
 	log.Printf("recovery script stored in %s", recoverFn)
 
-	if err := keepOnly(5); err != nil {
+	if err := keepOnly(*keepOnlyN); err != nil {
 		return err
 	}
 	return nil
