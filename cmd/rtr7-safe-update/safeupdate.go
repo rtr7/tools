@@ -169,7 +169,13 @@ func update(dir string) error {
 	}
 	defer boot.Close()
 
-	baseUrl := "http://gokrazy:" + pw + "@router7/"
+	mbr, err := os.Open(filepath.Join(dir, "mbr.img"))
+	if err != nil {
+		return err
+	}
+	defer mbr.Close()
+
+	baseUrl := "http://gokrazy:" + pw + "@" + *hostname + "/"
 
 	// Start with the root file system because writing to the non-active
 	// partition cannot break the currently running system.
@@ -179,6 +185,10 @@ func update(dir string) error {
 
 	if err := updater.UpdateBoot(baseUrl, boot); err != nil {
 		return fmt.Errorf("updating boot file system: %v", err)
+	}
+
+	if err := updater.UpdateMBR(baseUrl, mbr); err != nil {
+		return fmt.Errorf("updating MBR: %v", err)
 	}
 
 	if err := updater.Switch(baseUrl); err != nil {
