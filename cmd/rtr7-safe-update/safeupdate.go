@@ -228,6 +228,9 @@ func update(dir string) error {
 }
 
 func rollback(latest string) error {
+	if latest == "" {
+		return fmt.Errorf("no latest image found")
+	}
 	// Figure out the full path so that we can construct a sudo command line
 	path, err := exec.LookPath("rtr7-recover")
 	if err != nil {
@@ -250,7 +253,7 @@ func rollback(latest string) error {
 
 func logic() error {
 	if _, err := os.Stat(*updatesDir); err != nil {
-		return fmt.Errorf("stat(-updates_dir=%q): %v", *updatesDir, err)
+		return fmt.Errorf("stat(-updates_dir): %v", err)
 	}
 
 	buildTimestamp := time.Now().Format(time.RFC3339) // TODO: pass to gokr-packer
@@ -294,9 +297,10 @@ func logic() error {
 
 	latest, err := latestImage()
 	if err != nil {
-		return err
+		log.Printf("rollback will not be possible: %v", err)
+	} else {
+		log.Printf("latest image: %v", latest)
 	}
-	log.Printf("latest image: %v", latest)
 
 	// TODO(later): print a warning if the router is running a different image
 	// (detect by requesting and comparing a checksum)
