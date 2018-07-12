@@ -40,6 +40,19 @@ var (
 		"/home/michael/router7/updates/",
 		"Directory in which a subdirectory with backups, logs, boot/root file system images will be stored")
 
+	buildCommand = flag.String("build_command",
+		`GOARCH=amd64 gokr-packer \
+	-hostname=router7 \
+	-overwrite_boot=${GOKR_DIR}/boot.img \
+	-overwrite_mbr=${GOKR_DIR}/mbr.img \
+	-overwrite_root=${GOKR_DIR}/root.img \
+	-kernel_package=github.com/rtr7/kernel \
+	-firmware_package=github.com/rtr7/kernel \
+	-gokrazy_pkgs=github.com/gokrazy/gokrazy/cmd/ntp \
+	-serial_console=ttyS0,115200n8 \
+	github.com/rtr7/router7/cmd/...`,
+		"gokr-packer invocation to run (via /bin/sh -c). The GOKR_DIR environment variable is set to the destination directory.")
+
 	hostname = flag.String("hostname",
 		"router7",
 		"Hostname or IP address to update")
@@ -153,10 +166,11 @@ func storeBackup(dir string) error {
 }
 
 func buildImage(dir string) error {
-	make := exec.Command("make", "-C", "/home/michael/router7", "image", "DIR="+dir)
-	make.Stderr = os.Stderr
-	if err := make.Run(); err != nil {
-		return fmt.Errorf("%v: %v", make.Args, err)
+	build := exec.Command("/bin/sh", "-c", *buildCommand)
+	build.Env = append(os.Environ(), "GOKR_DIR="+dir)
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		return fmt.Errorf("%v: %v", build.Args, err)
 	}
 	return nil
 }
@@ -223,7 +237,8 @@ func rollback(latest string) error {
 		"--preserve-env=GOPATH",
 		path,
 		"-boot="+filepath.Join(*updatesDir, latest, "boot.img"),
-		"-root="+filepath.Join(*updatesDir, latest, "root.img"))
+		"-root="+filepath.Join(*updatesDir, latest, "root.img"),
+		"-mbr="+filepath.Join(*updatesDir, latest, "mbr.img"))
 	recover.Env = append(os.Environ(), "GOPATH="+build.Default.GOPATH)
 	recover.Stdout = os.Stdout
 	recover.Stderr = os.Stderr
@@ -291,7 +306,7 @@ func logic() error {
 		return err
 	}
 
-	log.Printf("building images")
+	log.Printf("building images using %s", *buildCommand)
 	if err := buildImage(dir); err != nil {
 		return err
 	}
