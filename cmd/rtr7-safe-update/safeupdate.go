@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Binary rt7-safe-update safely updates a router.
+// Binary rtr7-safe-update safely updates a router.
 package main
 
 import (
@@ -194,7 +194,7 @@ func update(dir string) error {
 
 func rollback(latest string) error {
 	// Figure out the full path so that we can construct a sudo command line
-	path, err := exec.LookPath("rt7-recover")
+	path, err := exec.LookPath("rtr7-recover")
 	if err != nil {
 		return err
 	}
@@ -301,7 +301,7 @@ func logic() error {
 
 	recoverFn := filepath.Join(dir, "recover.bash")
 	recoverScript := fmt.Sprintf(`#!/bin/bash
-sudo rt7-recover -boot=boot.img -root=root.img
+sudo rtr7-recover -boot=boot.img -root=root.img
 `)
 	if err := ioutil.WriteFile(recoverFn, []byte(recoverScript), 0755); err != nil {
 		return err
