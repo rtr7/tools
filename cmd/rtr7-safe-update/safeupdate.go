@@ -40,13 +40,17 @@ var (
 		"/home/michael/router7/updates/",
 		"Directory in which a subdirectory with backups, logs, boot/root file system images will be stored")
 
+	hostname = flag.String("hostname",
+		"router7",
+		"Hostname or IP address to update")
+
 	keepOnlyN = flag.Int("keep_only_n",
 		5,
 		"Keep only the last N (default 5) updates to conserve disk space. Setting this to -1 keeps all updates forever.")
 )
 
 func verifyHealthy() error {
-	const url = "http://router7:7733/health.json"
+	url := "http://" + *hostname + ":7733/health.json"
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -128,7 +132,7 @@ func keepOnly(n int) error {
 }
 
 func storeBackup(dir string) error {
-	const url = "http://router7:8077/backup.tar.gz"
+	url := "http://" + *hostname + ":8077/backup.tar.gz"
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
