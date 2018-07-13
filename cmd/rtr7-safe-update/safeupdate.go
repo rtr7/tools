@@ -29,7 +29,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/rtr7/tools/internal/updater"
@@ -256,32 +255,37 @@ func logic() error {
 		return fmt.Errorf("stat(-updates_dir): %v", err)
 	}
 
-	buildTimestamp := time.Now().Format(time.RFC3339) // TODO: pass to gokr-packer
-
-	dir := filepath.Join(*updatesDir, buildTimestamp)
-	if err := os.Mkdir(dir, 0755); err != nil {
-		return err
+	var buildTimestamp, dir string
+	if e := os.Getenv("RTR7_SAFE_UPDATE_REEXEC"); e != "" {
+		buildTimestamp = e
+		dir = filepath.Join(*updatesDir, buildTimestamp)
+	} else {
+		buildTimestamp = time.Now().Format(time.RFC3339) // TODO: pass to gokr-packer
+		dir = filepath.Join(*updatesDir, buildTimestamp)
+		if err := os.Mkdir(dir, 0755); err != nil {
+			return err
+		}
 	}
 
-	// TODO: dup stderr, make log go to both
+	if os.Getenv("RTR7_SAFE_UPDATE_REEXEC") == "" {
+		log.Printf("redirecting output to %s/{stdout,stderr}.log", dir)
+		stdout, err := os.Create(filepath.Join(dir, "stdout.log"))
+		if err != nil {
+			return err
+		}
+		defer stdout.Close()
 
-	log.Printf("redirecting output to %s/{stdout,stderr}.log", dir)
-	stdout, err := os.Create(filepath.Join(dir, "stdout.log"))
-	if err != nil {
-		return err
-	}
-	defer stdout.Close()
-	if err := syscall.Dup2(int(stdout.Fd()), 1); err != nil {
-		return err
-	}
+		stderr, err := os.Create(filepath.Join(dir, "stderr.log"))
+		if err != nil {
+			return err
+		}
+		defer stderr.Close()
 
-	stderr, err := os.Create(filepath.Join(dir, "stderr.log"))
-	if err != nil {
-		return err
-	}
-	defer stderr.Close()
-	if err := syscall.Dup2(int(stderr.Fd()), 2); err != nil {
-		return err
+		reexec := exec.Command(os.Args[0], os.Args[1:]...)
+		reexec.Env = append(os.Environ(), "RTR7_SAFE_UPDATE_REEXEC="+buildTimestamp)
+		reexec.Stderr = io.MultiWriter(stderr, os.Stderr)
+		reexec.Stdout = io.MultiWriter(stdout, os.Stdout)
+		return reexec.Run()
 	}
 
 	log.Printf("flags are set to:")
