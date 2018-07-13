@@ -144,6 +144,8 @@ func keepOnly(n int) error {
 }
 
 func storeBackup(dir string) error {
+	backupfn := filepath.Join(dir, "backup.tar.gz")
+	log.Printf("downloading backup to %s", backupfn)
 	url := "http://" + *hostname + ":8077/backup.tar.gz"
 	resp, err := http.Get(url)
 	if err != nil {
@@ -153,7 +155,7 @@ func storeBackup(dir string) error {
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
 		return fmt.Errorf("%s: unexpected HTTP status code: got %v, want %v", url, got, want)
 	}
-	f, err := os.Create(filepath.Join(dir, "backup.tar.gz"))
+	f, err := os.Create(backupfn)
 	if err != nil {
 		return err
 	}
@@ -309,7 +311,6 @@ func logic() error {
 	// TODO(later): print a warning if the router is running a different image
 	// (detect by requesting and comparing a checksum)
 
-	log.Printf("requesting backup")
 	if err := storeBackup(dir); err != nil {
 		return err
 	}
