@@ -37,12 +37,13 @@ import (
 )
 
 var (
-	bootPath   = flag.String("boot", "", "Path to gokr-packer’s -overwrite_boot")
-	rootPath   = flag.String("root", "", "Path to gokr-packer’s -overwrite_root")
-	mbrPath    = flag.String("mbr", "", "Path to gokr-packer’s -overwrite_mbr")
-	backupPath = flag.String("backup", "", "Path to a backup.tar.gz archive from backupd")
-	reset      = flag.Bool("reset", true, "Trigger a reset if a Teensy rebootor is attached")
-	ifname     = flag.String("interface", firstIfname(), "ethernet interface name (e.g. enp0s31f6) on which to serve TFTP, HTTP, DHCP")
+	bootPath     = flag.String("boot", "", "Path to gokr-packer’s -overwrite_boot")
+	rootPath     = flag.String("root", "", "Path to gokr-packer’s -overwrite_root")
+	mbrPath      = flag.String("mbr", "", "Path to gokr-packer’s -overwrite_mbr")
+	backupPath   = flag.String("backup", "", "Path to a backup.tar.gz archive from backupd")
+	reset        = flag.Bool("reset", true, "Trigger a reset if a Teensy rebootor is attached")
+	ifname       = flag.String("interface", firstIfname(), "ethernet interface name (e.g. enp0s31f6) on which to serve TFTP, HTTP, DHCP")
+	recoverOctet = flag.Int("recover_octet", 1, "last octet of the IP address to use during recovery. E.g., if -interface uses address 10.0.0.76, -recover_octet=1 results in 10.0.0.1 being handed out to the client")
 )
 
 func firstIfname() string {
@@ -90,8 +91,9 @@ func serveFile(filename string) func(io.ReaderFrom) error {
 }
 
 type dhcpHandler struct {
-	serverIP net.IP
-	options  dhcp4.Options
+	serverIP  net.IP
+	recoverIP net.IP
+	options   dhcp4.Options
 	// ServeDHCP responds to requests with Vendor class identifier “PXEClient”,
 	// stores the requester’s MAC address in lastHWAddr and allows subsequent
 	// requests (from the recovery Linux) from that same address.
@@ -118,7 +120,7 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 		rp := dhcp4.ReplyPacket(p,
 			dhcp4.Offer,
 			h.serverIP,
-			net.IP{10, 0, 0, 92},
+			h.recoverIP,
 			2*time.Hour,
 			h.options.SelectOrderOrAll(options[dhcp4.OptionParameterRequestList]))
 		return rp
@@ -129,7 +131,7 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 		rp := dhcp4.ReplyPacket(p,
 			dhcp4.ACK,
 			h.serverIP,
-			net.IP{10, 0, 0, 92},
+			h.recoverIP,
 			2*time.Hour,
 			h.options.SelectOrderOrAll(options[dhcp4.OptionParameterRequestList]))
 		rp.SetSIAddr(h.serverIP)          // next server
@@ -176,6 +178,11 @@ func logic() error {
 	if err != nil {
 		return err
 	}
+
+	recoverIP := make(net.IP, 4)
+	copy(recoverIP, serverIP.To4())
+	recoverIP[3] = byte(*recoverOctet)
+	log.Printf("client will use IP address %v during recovery", recoverIP)
 
 	pxeLinuxConfig := fmt.Sprintf(`DEFAULT recover
 
@@ -250,7 +257,8 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 	eg.Go(func() error { return tsrv.ListenAndServe(":69") })
 
 	handler := &dhcpHandler{
-		serverIP: serverIP,
+		serverIP:  serverIP,
+		recoverIP: recoverIP,
 		options: dhcp4.Options{
 			dhcp4.OptionVendorClassIdentifier: []byte("PXEClient"),
 			dhcp4.OptionSubnetMask:            []byte{255, 255, 255, 0},
