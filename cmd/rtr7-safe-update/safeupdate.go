@@ -346,7 +346,7 @@ func logic() error {
 
 	recoverFn := filepath.Join(dir, "recover.bash")
 	recoverScript := fmt.Sprintf(`#!/bin/bash
-sudo rtr7-recover -boot=boot.img -root=root.img
+GOPATH=$(go env GOPATH) sudo --preserve-env=GOPATH $(which rtr7-recover) -boot=boot.img -root=root.img -mbr=mbr.img
 `)
 	if err := ioutil.WriteFile(recoverFn, []byte(recoverScript), 0755); err != nil {
 		return err
