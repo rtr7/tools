@@ -47,7 +47,7 @@ var (
 	-overwrite_root=${GOKR_DIR}/root.img \
 	-kernel_package=github.com/rtr7/kernel \
 	-firmware_package=github.com/rtr7/kernel \
-	-gokrazy_pkgs=github.com/gokrazy/gokrazy/cmd/ntp \
+	-gokrazy_pkgs=github.com/gokrazy/gokrazy/cmd/ntp,github.com/gokrazy/gokrazy/cmd/randomd \
 	-serial_console=ttyS0,115200n8 \
 	github.com/rtr7/router7/cmd/...`,
 		"gokr-packer invocation to run (via /bin/sh -c). The GOKR_DIR environment variable is set to the destination directory.")
