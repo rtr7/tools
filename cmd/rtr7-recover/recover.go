@@ -101,22 +101,26 @@ type dhcpHandler struct {
 }
 
 func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, options dhcp4.Options) dhcp4.Packet {
-	mt := "DHCP" + strings.ToUpper(msgType.String())
+	prefix := fmt.Sprintf("[dhcp] %v DHCP%v → ", p.CHAddr(), strings.ToUpper(msgType.String()))
 	if msgType != dhcp4.Discover &&
 		!net.IP(options[dhcp4.OptionServerIdentifier]).Equal(h.serverIP) {
-		log.Printf("[dhcp] ignoring %v for other server %v", mt, options[dhcp4.OptionServerIdentifier])
+		log.Printf(prefix+"ignore (for other server %v)", options[dhcp4.OptionServerIdentifier])
 		return nil
 	}
 
-	if !bytes.HasPrefix(options[dhcp4.OptionVendorClassIdentifier], []byte("PXEClient")) &&
-		!bytes.Equal(h.lastHWAddr, p.CHAddr()) {
-		log.Printf("[dhcp] ignoring non-PXE %v", mt)
+	if !bytes.HasPrefix(options[dhcp4.OptionVendorClassIdentifier], []byte("PXEClient")) {
+		log.Printf(prefix + "ignore (PXEClient vendor class option not found)")
 		return nil
 	}
-
+	if h.lastHWAddr != nil {
+		if got, want := p.CHAddr(), h.lastHWAddr; !bytes.Equal(got, want) {
+			log.Printf(prefix+"DHCPNAK (%v is the first PXE client)", want)
+			return dhcp4.ReplyPacket(p, dhcp4.NAK, h.serverIP, nil, 0, nil)
+		}
+	}
 	switch msgType {
 	case dhcp4.Discover:
-		log.Printf("[dhcp] %s %v", mt, p.CHAddr())
+		log.Printf(prefix + "DHCPOFFER")
 		rp := dhcp4.ReplyPacket(p,
 			dhcp4.Offer,
 			h.serverIP,
@@ -126,7 +130,7 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 		return rp
 
 	case dhcp4.Request:
-		log.Printf("[dhcp] %s %v", mt, p.CHAddr())
+		log.Printf(prefix + "DHCPACK")
 		h.lastHWAddr = p.CHAddr()
 		rp := dhcp4.ReplyPacket(p,
 			dhcp4.ACK,
@@ -139,7 +143,7 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 		return rp
 
 	default:
-		log.Printf("[dhcp] ignoring unsupported message type %v", msgType)
+		log.Printf(prefix+"ignore (unsupported message type %v)", msgType)
 	}
 	return nil
 }
