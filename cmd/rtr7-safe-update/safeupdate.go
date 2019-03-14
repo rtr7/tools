@@ -16,6 +16,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -62,8 +63,15 @@ var (
 )
 
 func verifyHealthy() error {
+	ctx, canc := context.WithTimeout(context.Background(), 2*time.Second)
+	defer canc()
 	url := "http://" + *hostname + ":7733/health.json"
-	resp, err := http.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	req = req.WithContext(ctx)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -325,12 +333,22 @@ func logic() error {
 		return err
 	}
 
-	// wait 1 second until gokrazy decides to reboot, another second for the
-	// device to definitely stop responding to health queries.
-	time.Sleep(2 * time.Second)
+	// Wait until gokrazy triggered a reboot and the device actually stops
+	// responding to health queries. This can take a little while thanks to the
+	// kernel flushing the cache etc.
+	log.Printf("awaiting unhealthiness")
+	start := time.Now()
+	for time.Since(start) < 30*time.Second {
+		if err := verifyHealthy(); err != nil {
+			log.Printf("became unhealthy after %v: %v", time.Since(start), err)
+			break
+		}
+		time.Sleep(1 * time.Second)
+		continue
+	}
 
 	log.Printf("awaiting healthiness")
-	start := time.Now()
+	start = time.Now()
 	for time.Since(start) < 2*time.Minute {
 		if err := verifyHealthy(); err != nil {
 			log.Printf("unhealthy after %v: %v", time.Since(start), err)
