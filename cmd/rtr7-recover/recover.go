@@ -108,14 +108,15 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 		return nil
 	}
 
-	if !bytes.HasPrefix(options[dhcp4.OptionVendorClassIdentifier], []byte("PXEClient")) {
-		log.Printf(prefix + "ignore (PXEClient vendor class option not found)")
-		return nil
-	}
 	if h.lastHWAddr != nil {
 		if got, want := p.CHAddr(), h.lastHWAddr; !bytes.Equal(got, want) {
 			log.Printf(prefix+"DHCPNAK (%v is the first PXE client)", want)
 			return dhcp4.ReplyPacket(p, dhcp4.NAK, h.serverIP, nil, 0, nil)
+		}
+	} else {
+		if !bytes.HasPrefix(options[dhcp4.OptionVendorClassIdentifier], []byte("PXEClient")) {
+			log.Printf(prefix + "ignore (PXEClient vendor class option not found)")
+			return nil
 		}
 	}
 	switch msgType {

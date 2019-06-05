@@ -35,12 +35,12 @@ func TestDHCPAddressFilter(t *testing.T) {
 		want    dhcp4.MessageType
 	}{
 		{
-			desc:    "first PXE request",
+			desc:    "first MAC",
 			macaddr: mac(),
 			want:    dhcp4.ACK,
 		},
 		{
-			desc:    "different PXE request",
+			desc:    "different MAC",
 			macaddr: mac(),
 			want:    dhcp4.NAK,
 		},
@@ -67,6 +67,25 @@ func TestDHCPAddressFilter(t *testing.T) {
 			if got, want := messageType(reply), test.want; got != want {
 				t.Errorf("ServeDHCP(%v) = %v, want %v", p, got, want)
 			}
+
+			// Now a non-PXE request from the same MAC address:
+			p = dhcp4.RequestPacket(
+				dhcp4.Request,
+				net.HardwareAddr(bytes.Repeat([]byte{test.macaddr}, 6)),
+				net.ParseIP("192.0.2.1"),       // requested IP address
+				[]byte{0xaa, 0xbb, 0xcc, 0xdd}, // transaction ID
+				false,                          // broadcast,
+				[]dhcp4.Option{
+					{
+						Code:  dhcp4.OptionServerIdentifier,
+						Value: net.IP{192, 0, 2, 76},
+					},
+				},
+			)
+			reply = handler.ServeDHCP(p, dhcp4.Request, p.ParseOptions())
+			if got, want := messageType(reply), test.want; got != want {
+				t.Errorf("ServeDHCP(%v) = %v, want %v", p, got, want)
+			}
 		})
 	}
 
@@ -85,8 +104,8 @@ func TestDHCPAddressFilter(t *testing.T) {
 			},
 		)
 		reply := handler.ServeDHCP(p, dhcp4.Request, p.ParseOptions())
-		if reply != nil {
-			t.Errorf("ServeDHCP(%v) = %v, want %v", p, reply, nil)
+		if got, want := messageType(reply), dhcp4.NAK; got != want {
+			t.Errorf("ServeDHCP(%v) = %v, want %v", p, got, want)
 		}
 	})
 }
