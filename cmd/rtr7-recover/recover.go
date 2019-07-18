@@ -139,8 +139,8 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 			h.recoverIP,
 			2*time.Hour,
 			h.options.SelectOrderOrAll(options[dhcp4.OptionParameterRequestList]))
-		rp.SetSIAddr(h.serverIP)          // next server
-		rp.SetFile([]byte("lpxelinux.0")) // boot file name
+		rp.SetSIAddr(h.serverIP)         // next server
+		rp.SetFile([]byte("pxelinux.0")) // boot file name
 		return rp
 
 	default:
