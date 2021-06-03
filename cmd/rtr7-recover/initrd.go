@@ -61,9 +61,9 @@ func makeInitrd() ([]byte, error) {
 	defer os.RemoveAll(tmpdir)
 
 	log.Printf("building github.com/rtr7/tools/cmd/rtr7-recovery-init")
-	compile := exec.Command("go", "build", "github.com/rtr7/tools/cmd/rtr7-recovery-init")
+	compile := exec.Command("go", "install", "github.com/rtr7/tools/cmd/rtr7-recovery-init@latest")
 	compile.Dir = tmpdir
-	compile.Env = append(os.Environ(), "CGO_ENABLED=0", "GOARCH=amd64")
+	compile.Env = append(os.Environ(), "CGO_ENABLED=0", "GOARCH=amd64", "GOBIN="+tmpdir)
 	compile.Stderr = os.Stderr
 	if err := compile.Run(); err != nil {
 		return nil, fmt.Errorf("%v: %v", compile.Args, err)
