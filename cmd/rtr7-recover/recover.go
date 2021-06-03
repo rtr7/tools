@@ -275,6 +275,12 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 	}
 	eg.Go(func() error { return dhcp4.Serve(cn, handler) })
 
+	cn4011, err := conn.NewUDP4BoundListener(*ifname, ":4011")
+	if err != nil {
+		return fmt.Errorf("NewUDP4BoundListener(%q, %q): %v", *ifname, ":67", err)
+	}
+	eg.Go(func() error { return dhcp4.Serve(cn4011, handler) })
+
 	if *reset {
 		if err := teensyReset(); err != nil {
 			log.Printf("teensy rebootor-triggered reset failed (%v), please reset the apu2c4 manually", err)
