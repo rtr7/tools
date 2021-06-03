@@ -102,10 +102,12 @@ type dhcpHandler struct {
 
 func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, options dhcp4.Options) dhcp4.Packet {
 	prefix := fmt.Sprintf("[dhcp] %v DHCP%v → ", p.CHAddr(), strings.ToUpper(msgType.String()))
-	if msgType != dhcp4.Discover &&
-		!net.IP(options[dhcp4.OptionServerIdentifier]).Equal(h.serverIP) {
-		log.Printf(prefix+"ignore (for other server %v)", options[dhcp4.OptionServerIdentifier])
-		return nil
+	if msgType != dhcp4.Discover {
+		serverId := net.IP(options[dhcp4.OptionServerIdentifier])
+		if serverId != nil && !serverId.IsUnspecified() && !serverId.Equal(h.serverIP) {
+			log.Printf(prefix+"ignore (for other server %v)", serverId)
+			return nil
+		}
 	}
 
 	if h.lastHWAddr != nil {
