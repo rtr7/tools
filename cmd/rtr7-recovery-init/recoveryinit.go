@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -83,7 +84,7 @@ func writePartitionTable(w io.Writer, devsize uint64) error {
 		invalidCHS,
 		Linux,
 		invalidCHS,
-		uint32(8192 + (1100 * MB / 512)),                   // start after partition 3
+		uint32(8192 + (1100 * MB / 512)), // start after partition 3
 		uint32((devsize / 512) - 8192 - (1100 * MB / 512)), // remainder
 
 		signature,
@@ -202,6 +203,20 @@ type InterfaceConfig struct {
 	Interfaces []InterfaceDetails `json:"interfaces"`
 }
 
+// Partition returns the file system path identifying the specified partition on
+// the root device from which gokrazy was booted.
+//
+// E.g. Partition(2) = /dev/mmcblk0p2
+func partitionPath(dev string, number int) string {
+	if (strings.HasPrefix(dev, "/dev/mmcblk") ||
+		strings.HasPrefix(dev, "/dev/loop") ||
+		strings.HasPrefix(dev, "/dev/nvme")) &&
+		!strings.HasSuffix(dev, "p") {
+		dev += "p"
+	}
+	return dev + strconv.Itoa(number)
+}
+
 func writeInterfacesJSON(fn string) error {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -263,9 +278,13 @@ func logic() error {
 		log.Fatalf("Could not extract rtr7.server= from kernel command line")
 	}
 
-	log.Printf("partitioning /dev/sda")
+	blockDev := "/dev/sda"
+	if _, err := os.Stat(blockDev); err != nil {
+		blockDev = "/dev/nvme0n1"
+	}
+	log.Printf("partitioning %s", blockDev)
 
-	if err := partition("/dev/sda"); err != nil {
+	if err := partition(blockDev); err != nil {
 		return err
 	}
 
@@ -273,9 +292,9 @@ func logic() error {
 		target string
 		url    string
 	}{
-		{"/dev/sda", "http://" + server + ":7773/mbr.img"},
-		{"/dev/sda1", "http://" + server + ":7773/boot.img"},
-		{"/dev/sda2", "http://" + server + ":7773/root.img"},
+		{blockDev, "http://" + server + ":7773/mbr.img"},
+		{partitionPath(blockDev, 1), "http://" + server + ":7773/boot.img"},
+		{partitionPath(blockDev, 2), "http://" + server + ":7773/root.img"},
 	} {
 		log.Printf("downloading %s to %s", part.url, part.target)
 		if err := download(part.target, part.url); err != nil {
@@ -283,11 +302,12 @@ func logic() error {
 		}
 	}
 
-	dumpe2fs := exec.Command("/dumpe2fs", "-h", "/dev/sda4")
+	perm := partitionPath(blockDev, 4)
+	dumpe2fs := exec.Command("/dumpe2fs", "-h", perm)
 	if err := dumpe2fs.Run(); err != nil {
-		log.Printf("creating ext4 file system on /dev/sda4")
+		log.Printf("creating ext4 file system on %s", perm)
 
-		mke2fs := exec.Command("/mke2fs", "-t", "ext4", "/dev/sda4")
+		mke2fs := exec.Command("/mke2fs", "-t", "ext4", perm)
 		mke2fs.Stdout = os.Stdout
 		mke2fs.Stderr = os.Stderr
 		if err := mke2fs.Run(); err != nil {
@@ -295,7 +315,7 @@ func logic() error {
 		}
 	}
 
-	if err := syscall.Mount("/dev/sda4", "/perm", "ext4", 0, ""); err != nil {
+	if err := syscall.Mount(perm, "/perm", "ext4", 0, ""); err != nil {
 		return fmt.Errorf("Could not mount permanent storage partition: %v", err)
 	}
 
