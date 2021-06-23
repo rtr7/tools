@@ -141,8 +141,16 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 			h.recoverIP,
 			2*time.Hour,
 			h.options.SelectOrderOrAll(options[dhcp4.OptionParameterRequestList]))
-		rp.SetSIAddr(h.serverIP)         // next server
-		rp.SetFile([]byte("pxelinux.0")) // boot file name
+		rp.SetSIAddr(h.serverIP) // next server
+
+		// Set boot file name depending on the BIOS/UEFI. See also:
+		// https://wiki.fogproject.org/wiki/index.php/BIOS_and_UEFI_Co-Existence
+		if bytes.HasPrefix(options[dhcp4.OptionVendorClassIdentifier], []byte("PXEClient:Arch:00000")) {
+			rp.SetFile([]byte("pxelinux.0")) // boot file name
+		} else {
+			rp.SetFile([]byte("bootx64.efi")) // boot file name
+		}
+
 		return rp
 
 	default:
