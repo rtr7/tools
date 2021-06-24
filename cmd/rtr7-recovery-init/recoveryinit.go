@@ -15,7 +15,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -31,71 +30,9 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/gokrazy/tools/packer"
 	"golang.org/x/sys/unix"
 )
-
-// TODO: come up with a good way to keep this in sync with gokrazy
-
-const MB = 1024 * 1024
-
-var (
-	active   = byte(0x80)
-	inactive = byte(0x00)
-
-	// invalidCHS results in using the sector values instead
-	invalidCHS = [3]byte{0xFE, 0xFF, 0xFF}
-
-	FAT   = byte(0xc)
-	Linux = byte(0x83)
-
-	signature = uint16(0xAA55)
-)
-
-func writePartitionTable(w io.Writer, devsize uint64) error {
-	for _, v := range []interface{}{
-		[446]byte{}, // boot code
-
-		// partition 1
-		active,
-		invalidCHS,
-		FAT,
-		invalidCHS,
-		uint32(8192),           // start at 8192 sectors
-		uint32(100 * MB / 512), // 100MB in size
-
-		// partition 2
-		inactive,
-		invalidCHS,
-		FAT,
-		invalidCHS,
-		uint32(8192 + (100 * MB / 512)), // start after partition 1
-		uint32(500 * MB / 512),          // 500MB in size
-
-		// partition 3
-		inactive,
-		invalidCHS,
-		FAT,
-		invalidCHS,
-		uint32(8192 + (600 * MB / 512)), // start after partition 2
-		uint32(500 * MB / 512),          // 500MB in size
-
-		// partition 3
-		inactive,
-		invalidCHS,
-		Linux,
-		invalidCHS,
-		uint32(8192 + (1100 * MB / 512)), // start after partition 3
-		uint32((devsize / 512) - 8192 - (1100 * MB / 512)), // remainder
-
-		signature,
-	} {
-		if err := binary.Write(w, binary.LittleEndian, v); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
 
 func deviceSize(fd uintptr) (uint64, error) {
 	var devsize uint64
@@ -103,13 +40,6 @@ func deviceSize(fd uintptr) (uint64, error) {
 		return 0, fmt.Errorf("BLKGETSIZE64: %v", errno)
 	}
 	return devsize, nil
-}
-
-func rereadPartitions(fd uintptr) error {
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, fd, unix.BLKRRPART, 0); errno != 0 {
-		return fmt.Errorf("re-read partition table: %v", errno)
-	}
-	return nil
 }
 
 func partition(path string) error {
@@ -125,27 +55,13 @@ func partition(path string) error {
 	}
 	log.Printf("device holds %d bytes", devsize)
 
-	if err := writePartitionTable(o, devsize); err != nil {
+	hostname := kernelParameter("rtr7.hostname")
+	p := packer.NewPackForHost(hostname)
+	if err := p.Partition(o, devsize); err != nil {
 		return err
 	}
 
-	// Make Linux re-read the partition table. Sequence of system calls like in fdisk(8).
-	unix.Sync()
-
-	if err := rereadPartitions(uintptr(o.Fd())); err != nil {
-		return err
-	}
-
-	if err := o.Sync(); err != nil {
-		return err
-	}
-
-	if err := o.Close(); err != nil {
-		return err
-	}
-
-	unix.Sync()
-	return nil
+	return p.RereadPartitions(o)
 }
 
 func download(target, url string) error {
@@ -303,8 +219,9 @@ func logic() error {
 	}
 
 	perm := partitionPath(blockDev, 4)
-	dumpe2fs := exec.Command("/dumpe2fs", "-h", perm)
-	if err := dumpe2fs.Run(); err != nil {
+
+	if err := syscall.Mount(perm, "/perm", "ext4", 0, ""); err != nil {
+		log.Printf("Could not mount permanent storage partition: %v", err)
 		log.Printf("creating ext4 file system on %s", perm)
 
 		mke2fs := exec.Command("/mke2fs", "-t", "ext4", perm)
@@ -313,10 +230,10 @@ func logic() error {
 		if err := mke2fs.Run(); err != nil {
 			return err
 		}
-	}
 
-	if err := syscall.Mount(perm, "/perm", "ext4", 0, ""); err != nil {
-		return fmt.Errorf("Could not mount permanent storage partition: %v", err)
+		if err := syscall.Mount(perm, "/perm", "ext4", 0, ""); err != nil {
+			return fmt.Errorf("Could not mount permanent storage partition: %v", err)
+		}
 	}
 
 	resp, err := http.Get("http://" + server + ":7773/backup.tar.gz")

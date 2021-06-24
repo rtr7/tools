@@ -44,6 +44,7 @@ var (
 	reset        = flag.Bool("reset", true, "Trigger a reset if a Teensy rebootor is attached")
 	ifname       = flag.String("interface", firstIfname(), "ethernet interface name (e.g. enp0s31f6) on which to serve TFTP, HTTP, DHCP")
 	recoverOctet = flag.Int("recover_octet", 1, "last octet of the IP address to use during recovery. E.g., if -interface uses address 10.0.0.76, -recover_octet=1 results in 10.0.0.1 being handed out to the client")
+	hostname     = flag.String("hostname", "", "hostname for the device, required for deriving the partition UUID")
 )
 
 func firstIfname() string {
@@ -314,8 +315,8 @@ func packageDir(pkg string) (string, error) {
 func main() {
 	flag.Parse()
 
-	if *bootPath == "" || *rootPath == "" || *mbrPath == "" {
-		log.Fatalf("-boot, -mbr and -root must be specified")
+	if *bootPath == "" || *rootPath == "" || *mbrPath == "" || *hostname == "" {
+		log.Fatalf("-boot, -mbr, -root and -hostname must be specified")
 	}
 
 	if _, err := os.Stat(*bootPath); err != nil {
