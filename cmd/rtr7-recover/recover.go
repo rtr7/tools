@@ -204,7 +204,7 @@ func logic() error {
 
 LABEL recover
 LINUX vmlinuz
-APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console=ttyS0,115200n8 panic=10 panic_on_oops=1 rtr7.server=%s`, serverIP)
+APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console=ttyS0,115200n8 panic=10 panic_on_oops=1 rtr7.server=%s rtr7.hostname=%s`, serverIP, *hostname)
 
 	mux := map[string]func(io.ReaderFrom) error{
 		"pxelinux.cfg/default": serveConst([]byte(pxeLinuxConfig)),
