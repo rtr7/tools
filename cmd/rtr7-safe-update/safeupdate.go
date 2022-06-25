@@ -24,11 +24,13 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,6 +58,10 @@ var (
 	hostname = flag.String("hostname",
 		"router7",
 		"Hostname or IP address to update")
+
+	port = flag.Int("port",
+		80,
+		"HTTP port to use for updating")
 
 	keepOnlyN = flag.Int("keep_only_n",
 		5,
@@ -209,7 +215,11 @@ func update(dir string) error {
 	}
 	defer mbr.Close()
 
-	baseUrl := "http://gokrazy:" + pw + "@" + *hostname + "/"
+	hostport := *hostname
+	if *port != 80 {
+		hostport = net.JoinHostPort(*hostname, strconv.Itoa(*port))
+	}
+	baseUrl := "http://gokrazy:" + pw + "@" + hostport + "/"
 
 	// Start with the root file system because writing to the non-active
 	// partition cannot break the currently running system.
