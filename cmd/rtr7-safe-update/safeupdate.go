@@ -256,7 +256,7 @@ func rollback(latest string) error {
 		return err
 	}
 	recover := exec.Command("sudo",
-		"--preserve-env=GOPATH",
+		"--preserve-env=GOPATH,HOME",
 		path,
 		"-boot="+filepath.Join(*updatesDir, latest, "boot.img"),
 		"-root="+filepath.Join(*updatesDir, latest, "root.img"),
@@ -375,7 +375,7 @@ func logic() error {
 
 	recoverFn := filepath.Join(dir, "recover.bash")
 	recoverScript := fmt.Sprintf(`#!/bin/bash
-GOPATH=$(go env GOPATH) sudo --preserve-env=GOPATH $(which rtr7-recover) -boot=boot.img -root=root.img -mbr=mbr.img -hostname=%s
+GOPATH=$(go env GOPATH) sudo --preserve-env=GOPATH,HOME $(which rtr7-recover) -boot=boot.img -root=root.img -mbr=mbr.img -hostname=%s
 `, *hostname)
 	if err := ioutil.WriteFile(recoverFn, []byte(recoverScript), 0755); err != nil {
 		return err
