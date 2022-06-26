@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	cpio "github.com/cavaliercoder/go-cpio"
@@ -54,17 +55,40 @@ func storeInCpio(w *cpio.Writer, fn string) error {
 }
 
 func makeInitrd() ([]byte, error) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return nil, fmt.Errorf("could not locate source using runtime.Caller(0)")
+	}
+
 	tmpdir, err := ioutil.TempDir("", "rtr7-recover")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(tmpdir)
 
-	log.Printf("building github.com/rtr7/tools/cmd/rtr7-recovery-init")
-	compile := exec.Command("go", "install", "github.com/rtr7/tools/cmd/rtr7-recovery-init@latest")
-	compile.Dir = tmpdir
-	compile.Env = append(os.Environ(), "CGO_ENABLED=0", "GOARCH=amd64", "GOBIN="+tmpdir)
+	// We build rtr7-recovery-init with the working directory set to the
+	// directory from which rtr7-recovery was built. This could either be a git
+	// working copy, or a $GOPATH/pkg/mod directory when installed via the go
+	// tool.
+	compile := exec.Command("go",
+		"build",
+		// -buildvcs fails when running as sudo, because then calls to git fail,
+		// because the git directory is owned by a different user (considered
+		// unsafe).
+		"-buildvcs=false",
+		"-o", filepath.Join(tmpdir, "rtr7-recovery-init"),
+		"github.com/rtr7/tools/cmd/rtr7-recovery-init")
+	compile.Dir = filepath.Dir(file)
+	compile.Env = append(os.Environ(),
+		"CGO_ENABLED=0",
+		// rtr7-recovery might be running on darwin/arm64.
+		"GOARCH=amd64",
+		"GOOS=linux",
+		// Prevent network access in all cases to ensure rtr7-recovery-init can
+		// always be built without network access.
+		"GOPROXY=off")
 	compile.Stderr = os.Stderr
+	log.Printf("building github.com/rtr7/tools/cmd/rtr7-recovery-init in %s", compile.Dir)
 	if err := compile.Run(); err != nil {
 		return nil, fmt.Errorf("%v: %v", compile.Args, err)
 	}
