@@ -28,8 +28,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/krolaw/dhcp4"
 	"github.com/krolaw/dhcp4/conn"
 	"github.com/pin/tftp"
@@ -230,7 +228,7 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 		mux[filepath.Base(path)] = serveConst(b)
 	}
 
-	var eg errgroup.Group
+	firstErr := make(chan error)
 
 	// HTTP performs significantly better than TFTP for larger files (reduces
 	// recovery time from minutes to seconds).
@@ -253,7 +251,7 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 		log.Printf("[http] %s %s", r.URL.Path, r.RemoteAddr)
 		os.Exit(0)
 	})
-	eg.Go(func() error { return http.ListenAndServe(":7773", nil) })
+	go func() { firstErr <- http.ListenAndServe(":7773", nil) }()
 
 	readHandler := func(filename string, rf io.ReaderFrom) (err error) {
 		defer func() {
@@ -270,7 +268,7 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 		return handler(rf)
 	}
 	tsrv := tftp.NewServer(readHandler, nil)
-	eg.Go(func() error { return tsrv.ListenAndServe(":69") })
+	go func() { firstErr <- tsrv.ListenAndServe(":69") }()
 
 	handler := &dhcpHandler{
 		serverIP:  serverIP,
@@ -284,13 +282,13 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 	if err != nil {
 		return fmt.Errorf("NewUDP4BoundListener(%q, %q): %v", *ifname, ":67", err)
 	}
-	eg.Go(func() error { return dhcp4.Serve(cn, handler) })
+	go func() { firstErr <- dhcp4.Serve(cn, handler) }()
 
 	cn4011, err := conn.NewUDP4BoundListener(*ifname, ":4011")
 	if err != nil {
 		return fmt.Errorf("NewUDP4BoundListener(%q, %q): %v", *ifname, ":67", err)
 	}
-	eg.Go(func() error { return dhcp4.Serve(cn4011, handler) })
+	go func() { firstErr <- dhcp4.Serve(cn4011, handler) }()
 
 	if *reset {
 		if err := teensyReset(); err != nil {
@@ -300,7 +298,7 @@ APPEND initrd=initrd rootfstype=ramfs ip=dhcp rdinit=/rtr7-recovery-init console
 
 	log.Printf("serving TFTP, HTTP, DHCP (for PXE clients) on %s (%s)", serverIP, *ifname)
 
-	return eg.Wait()
+	return <-firstErr
 }
 
 func packageDir(pkg string) (string, error) {
