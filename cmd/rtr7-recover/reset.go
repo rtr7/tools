@@ -16,6 +16,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/google/gousb"
 )
@@ -27,6 +28,11 @@ func teensyReset() error {
 	dev, err := usb.OpenDeviceWithVIDPID(0x16C0, 0x0477)
 	if err != nil {
 		return fmt.Errorf("could not open teensy rebootor: %v", err)
+	}
+
+	if dev == nil {
+		log.Printf("not resetting, no Teensy rebootor found")
+		return nil // no teensy attached
 	}
 
 	if err := dev.SetAutoDetach(true); err != nil {
