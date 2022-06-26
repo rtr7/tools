@@ -133,7 +133,10 @@ func (h *dhcpHandler) ServeDHCP(p dhcp4.Packet, msgType dhcp4.MessageType, optio
 
 	case dhcp4.Request:
 		log.Printf(prefix + "DHCPACK")
-		h.lastHWAddr = p.CHAddr()
+		// Make a copy of the MAC address, as the dhcp package will re-use the
+		// buffer that the p.CHAddr() slice points into.
+		h.lastHWAddr = make(net.HardwareAddr, len(p.CHAddr()))
+		copy(h.lastHWAddr, p.CHAddr())
 		rp := dhcp4.ReplyPacket(p,
 			dhcp4.ACK,
 			h.serverIP,
