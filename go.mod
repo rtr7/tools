@@ -8,5 +8,5 @@ require (
 	github.com/google/gousb v1.1.1
 	github.com/krolaw/dhcp4 v0.0.0-20190909130307-a50d88189771
 	github.com/pin/tftp v2.1.0+incompatible
-	golang.org/x/sys v0.0.0-20210820121016-41cdb8703e55
+	golang.org/x/sys v0.1.0
 )
