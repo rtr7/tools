@@ -191,10 +191,17 @@ func buildImage(dir string) error {
 }
 
 func update(dir string) error {
-	pwb, err := ioutil.ReadFile(filepath.Join(os.Getenv("HOME"), ".config", "gokrazy", "http-password.txt"))
-	if err != nil {
+	hostSpecificPath := filepath.Join(os.Getenv("HOME"), ".config", "gokrazy", "hosts", *hostname, "http-password.txt")
+	pwb, err := ioutil.ReadFile(hostSpecificPath)
+	if os.IsNotExist(err) {
+		pwb, err = ioutil.ReadFile(filepath.Join(os.Getenv("HOME"), ".config", "gokrazy", "http-password.txt"))
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
 		return err
 	}
+
 	pw := strings.TrimSpace(string(pwb))
 
 	root, err := os.Open(filepath.Join(dir, "root.img"))
