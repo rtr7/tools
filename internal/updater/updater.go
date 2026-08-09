@@ -18,11 +18,13 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"syscall"
 	"time"
 )
 
@@ -94,6 +96,9 @@ func Switch(baseUrl string) error {
 func Reboot(baseUrl string) error {
 	resp, err := http.Post(baseUrl+"reboot", "", nil)
 	if err != nil {
+		if errors.Is(err, syscall.ECONNRESET) {
+			return nil // expected when rebooting via tailscale
+		}
 		return err
 	}
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
